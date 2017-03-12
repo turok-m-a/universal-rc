@@ -95,11 +95,20 @@ char * msg;
 }
 
 
-void EEPROM_writeInt(int adr, int value)
+void EEPROM_writeInt(int adr, unsigned long value)
 {
-   byte* p = (byte*)(void*)&value;
-   for (int i = 0; i < sizeof(value); i++)
-       EEPROM.write(adr++, *p++);
+   byte* p = (byte*)&value;
+   for (int i = 0; i < 4; i++){
+      EEPROM.write(adr, *p);
+      Serial.print("EEPROM Write ");
+      Serial.print(*p);
+      Serial.print("to");
+      Serial.println(adr);
+      p++;
+      adr++;
+      
+   }
+       
 }
 
 void readEEP(){
@@ -125,9 +134,9 @@ void storeCode(){
   if (results.decode_type == UNKNOWN) return;
   EEPROM.write(address,results.bits);
   Serial.println("5");
-  EEPROM_writeInt(address+3,results.value);
+  EEPROM_writeInt(address+2,results.value);
   Serial.println("6");
-  EEPROM.write(address+2,results.decode_type);
+  EEPROM.write(address+1,results.decode_type);
   Serial.println("7");
 
   readEEP();
