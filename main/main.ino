@@ -5,31 +5,38 @@
 IRrecv Receiver(7);
 IRsend Sender;
 //decode_results results;
-byte holdKeys=0;
-
+void sendCode(char);
 byte getAdr(char);
-const byte rows = 2; //four rows
+byte toggle = 0;
+const byte rows = 4; //four rows
 const byte cols = 4; //three columns
 char keys[rows][cols] = {
   {'1','2','3','A'},
   {'4','5','6','B'},
+  {'7','8','9','C'},
+  {'*','0','#','D'}
   
 };
-byte rowPins[rows] = {4, 5 }; //connect to the row pinouts of the keypad
-byte colPins[cols] = {12, 11, 10, 8}; //connect to the column pinouts of the keypad
+byte rowPins[rows] = {2, 10, 9, 6}; //connect to the row pinouts of the keypad
+byte colPins[cols] = {8, 5, 4, 3}; //connect to the column pinouts of the keypad
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, rows, cols );
- 
+
 void setup()
 {
   Receiver.enableIRIn();
   Serial.begin(9600);
+  Serial1.begin(9600);
   //My_Receiver.enableIRIn(); // Start the receiver
 }
 
 
-  
+
 
 void loop() {
+  if(Serial1.available()){
+    Serial.write(Serial1.read());
+    Serial1.write("+++\n");
+  }
 //Continuously look for results. When you have them pass them to the decoder
   /*if (My_Receiver.GetResults(&My_Decoder)) {
     My_Decoder.decode();    //Decode the data
@@ -54,7 +61,6 @@ char * msg;
                 switch (keypad.key[i].kstate) {  // Report active key state : IDLE, PRESSED, HOLD, or RELEASED
                     case PRESSED:{
                       msg = " PRESSED.";
-                      holdKeys++; //del
                       if (keypad.key[i].kchar == 'A'){
                         for(int z=0;z<LIST_MAX;z++){
                           if((keypad.key[z].kchar == 'B') && (keypad.key[z].kstate == HOLD))
@@ -64,21 +70,23 @@ char * msg;
                           }
                         }
                       }
-                      switch (keypad.key[i].kchar){
-                           case '1': Sender.sendNEC(0xE0E048B7,32);break; //ch+
-                           case '2': Sender.sendNEC(0xE0E008F7,32);break; //ch-
-                           case '3': Sender.sendNEC(0xE0E0E01F,32);break; //vol+
-                           case 'A': Sender.sendNEC(0xE0E0D02F,32);break; //vol-
-                           case '4': Sender.sendNEC(0xE0E040BF,32);break; //pwr
-                           default:break;
+                      if (keypad.key[i].kchar == '*'){
+                        for(int z=0;z<LIST_MAX;z++){
+                          if((keypad.key[z].kchar == '#') && (keypad.key[z].kstate == HOLD))
+                          {
+                              Serial.println("\n*+#");
+                              digitalWrite(13,HIGH);
+                              delay(15000);
+                          }
+                        }
                       }
+                      sendCode(keypad.key[i].kchar);
                     }
                 break;
                     case HOLD:
                     msg = " HOLD.";
                 break;
                     case RELEASED:{
-                    holdKeys--;
                     msg = " RELEASED.";
                       
                     }
@@ -102,7 +110,7 @@ void EEPROM_writeInt(int adr, unsigned long value)
       EEPROM.write(adr, *p);
       Serial.print("EEPROM Write ");
       Serial.print(*p);
-      Serial.print("to");
+      Serial.print(" to ");
       Serial.println(adr);
       p++;
       adr++;
@@ -111,8 +119,25 @@ void EEPROM_writeInt(int adr, unsigned long value)
        
 }
 
+long unsigned EEPROM_readInt(int adr)
+{
+   long unsigned value;
+   byte* p = (byte*)&value;
+   for (int i = 0; i < 4; i++){
+      *p = EEPROM.read(adr);
+      Serial.print("EEPROM Read ");
+      Serial.print(*p);
+      Serial.print(" from ");
+      Serial.println(adr);
+      p++;
+      adr++;
+      
+   }
+   return value;    
+}
+
 void readEEP(){
-  for(int address=0;address < EEPROM.length();address++){
+  for(int address=0;address < 150;address++){
   int value = EEPROM.read(address);
   Serial.print(address);
   Serial.print("\t");
@@ -138,7 +163,10 @@ void storeCode(){
   Serial.println("6");
   EEPROM.write(address+1,results.decode_type);
   Serial.println("7");
-
+  Serial.println(results.rawlen);
+  for (int i=0; i<results.rawlen-1;i++){
+    Serial.println(results.rawbuf[i]);
+  }
   readEEP();
 }
 
@@ -162,6 +190,55 @@ byte getAdr(char button){
   }
 }
 
-
-
+void sendCode(char key){
+    byte adr = getAdr(key);
+    int codeLen = EEPROM.read(adr);
+    Serial.println(codeLen);
+    int codeType = EEPROM.read(adr+1);
+    Serial.println(codeType);
+    long unsigned codeValue = EEPROM_readInt(adr+2);
+    if (codeType == NEC) {
+      Sender.sendNEC(codeValue, codeLen);
+      Serial.print("Sent NEC ");
+      Serial.println(codeValue, HEX);
+  } 
+  else if (codeType == SONY) {
+    Sender.sendSony(codeValue, codeLen);
+    Serial.print("Sent Sony ");
+    Serial.println(codeValue, HEX);
+  } 
+  else if (codeType == PANASONIC) {
+    Sender.sendPanasonic(codeValue, codeLen);
+    Serial.print("Sent Panasonic");
+    Serial.println(codeValue, HEX);
+  }
+  else if (codeType == SAMSUNG) {
+    Sender.sendSAMSUNG(codeValue, codeLen);
+    Serial.print("Sent samsung ");
+    Serial.println(codeValue, HEX);
+  }
+  else if (codeType == JVC) {
+    Sender.sendPanasonic(codeValue, codeLen);
+    Serial.print("Sent JVC");
+    Serial.println(codeValue, HEX);
+  }
+  else if (codeType == RC5 || codeType == RC6) {
+      // Flip the toggle bit for a new button press
+      toggle = 1 - toggle;
+    
+    // Put the toggle bit into the code to send
+    codeValue = codeValue & ~(1 << (codeLen - 1));
+    codeValue = codeValue | (toggle << (codeLen - 1));
+    if (codeType == RC5) {
+      Serial.print("Sent RC5 ");
+      Serial.println(codeValue, HEX);
+      Sender.sendRC5(codeValue, codeLen);
+    } 
+    else {
+      Sender.sendRC6(codeValue, codeLen);
+      Serial.print("Sent RC6 ");
+      Serial.println(codeValue, HEX);
+    }
+  } 
+}
 
