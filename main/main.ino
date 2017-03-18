@@ -218,7 +218,9 @@ void sendCode(char key){
     Serial.println(codeValue, HEX);
   }
   else if (codeType == JVC) {
-    Sender.sendPanasonic(codeValue, codeLen);
+    Sender.sendJVC(codeValue, codeLen,0);
+    delayMicroseconds(50);
+    Sender.sendJVC(codeValue, codeLen,1);
     Serial.print("Sent JVC");
     Serial.println(codeValue, HEX);
   }
