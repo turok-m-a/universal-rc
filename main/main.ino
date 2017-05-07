@@ -1,60 +1,52 @@
-//#include <IRLib.h>
 #include <EEPROM.h>
 #include <IRremote.h>
 #include <Keypad.h>
+#include <Keyboard.h>
+#include <Mouse.h>
+#define USB_HID_PROTOCOL_KEYBOARD 0x01
+#define ROWS 4
+#define COLS 4
+#define PC_CONTROL 84
 IRrecv Receiver(7);
 IRsend Sender;
-//decode_results results;
 void sendCode(char);
+void pcControlStoreCodes();
+void pcControlMode();
 byte getAdr(char);
+byte findCode(long unsigned);
 byte toggle = 0;
-const byte rows = 4; //four rows
-const byte cols = 4; //three columns
-char keys[rows][cols] = {
+const char keys[ROWS][COLS] = {
   {'1','2','3','A'},
   {'4','5','6','B'},
   {'7','8','9','C'},
   {'*','0','#','D'}
   
 };
-byte rowPins[rows] = {2, 10, 9, 6}; //connect to the row pinouts of the keypad
-byte colPins[cols] = {8, 5, 4, 3}; //connect to the column pinouts of the keypad
-Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, rows, cols );
+const byte rowPins[ROWS] = {2, 10, 9, 6}; //connect to the row pinouts of the keypad
+const byte colPins[COLS] = {8, 5, 4, 3}; //connect to the column pinouts of the keypad
+Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 
 void setup()
 {
   Receiver.enableIRIn();
   Serial.begin(9600);
   Serial1.begin(9600);
-  //My_Receiver.enableIRIn(); // Start the receiver
+  Keyboard.begin();
+  Mouse.begin();
 }
-
-
-
 
 void loop() {
   if(Serial1.available()){
     Serial.write(Serial1.read());
     Serial1.write("+++\n");
   }
-//Continuously look for results. When you have them pass them to the decoder
-  /*if (My_Receiver.GetResults(&My_Decoder)) {
-    My_Decoder.decode();    //Decode the data
-    My_Decoder.DumpResults(); //Show the results on serial monitor
-    My_Receiver.resume();     //Restart the receiver
-    
-  }*/
-  //char customKey = keypad.getKey();
-  
-  //if (customKey){
-    //Serial.println(customKey);
-    
-  //}
+
+
   delay(10);
 char * msg;
   if (keypad.getKeys())
     {
-        for (int i=0; i<LIST_MAX; i++)   // Scan the whole key list.
+        for (byte i=0; i<LIST_MAX; i++)   // Scan the whole key list.
         {
             if ( keypad.key[i].stateChanged )   // Only find keys that have changed state.
             {
@@ -66,12 +58,21 @@ char * msg;
                           if((keypad.key[z].kchar == 'B') && (keypad.key[z].kstate == HOLD))
                           {
                               Serial.println("\nB+A");
-                              storeCode();
+                              storeCode(0);
+                          }
+                        }
+                      }
+                      if (keypad.key[i].kchar == 'C'){
+                        for(int z=0;z<LIST_MAX;z++){
+                          if((keypad.key[z].kchar == 'B') && (keypad.key[z].kstate == HOLD))
+                          {
+                              Serial.println("\nB+C");
+                              storeCode(1);
                           }
                         }
                       }
                       if (keypad.key[i].kchar == '*'){
-                        for(int z=0;z<LIST_MAX;z++){
+                        for(byte z=0;z<LIST_MAX;z++){
                           if((keypad.key[z].kchar == '#') && (keypad.key[z].kstate == HOLD))
                           {
                               Serial.println("\n*+#");
@@ -80,11 +81,33 @@ char * msg;
                           }
                         }
                       }
+                      if (keypad.key[i].kchar == 'D'){
+                        for(byte z=0;z<LIST_MAX;z++){
+                          if((keypad.key[z].kchar == 'B') && (keypad.key[z].kstate == HOLD))
+                          {
+                              Serial.println("\nB+D");
+                              pcControlStoreCodes();
+                          }
+                        }
+                      }
+                      if (keypad.key[i].kchar == '6'){
+                        for(byte z=0;z<LIST_MAX;z++){
+                          if((keypad.key[z].kchar == 'B') && (keypad.key[z].kstate == HOLD))
+                          {
+                              Serial.println("\nB+6");
+                              pcControlMode();
+                          }
+                        }
+                      }
                       sendCode(keypad.key[i].kchar);
                     }
                 break;
                     case HOLD:
                     msg = " HOLD.";
+                    /*while (keypad.getKeys() && !keypad.key[i].stateChanged) {
+                      sendCode(keypad.key[i].kchar);
+                      delay(400);
+                    }*/
                 break;
                     case RELEASED:{
                     msg = " RELEASED.";
@@ -146,7 +169,61 @@ void readEEP(){
   }
 }
 
-void storeCode(){
+void EEPROM_writeRAW(int adr, unsigned int * arr, int len)
+{
+   byte* p = (byte*)arr;
+   p+=2;
+   for (int i = 2; i < len*2; i++){
+      if (i%2) {
+        p++;
+        continue; //skip high byte
+      }
+      EEPROM.write(adr, *p);
+      Serial.print("EEPROM Write ");
+      Serial.print(*p);
+      Serial.print(" to ");
+      Serial.println(adr);
+      p++;
+      adr++;
+      
+   }
+       
+}
+unsigned int * EEPROM_readRAW(int adr,int len)
+{
+   unsigned int * arr = (unsigned int *)malloc(len*sizeof(unsigned int));
+   byte* p = (byte*)arr;
+   for (int i = 0; i < len*2-2; i++){
+      if (i%2) {
+        *p = 0; //high byte
+        p++;
+        continue;
+      }
+      *p = EEPROM.read(adr);
+      Serial.print("EEPROM Read ");
+      Serial.print(*p);
+      Serial.print(" from ");
+      Serial.println(adr);
+      p++;
+      adr++;     
+   }
+
+   for (int i = 0; i < len-1; i++) {
+      if (!(i % 2)) {
+        // Mark
+        arr[i] = arr[i]*USECPERTICK - MARK_EXCESS;
+        Serial.print(" m");
+      } 
+      else {
+        // Space
+        arr[i] = arr[i]*USECPERTICK + MARK_EXCESS;
+        Serial.print(" s");
+      }
+      Serial.print(arr[i], DEC);
+    }
+   return arr;    
+}
+void storeCode(byte storeRaw){
   Serial.println("1");
   char bindKey = keypad.waitForKey();
   Serial.println("2");
@@ -155,17 +232,24 @@ void storeCode(){
   Receiver.enableIRIn();
   decode_results results;
   while (!Receiver.decode(&results)) delay(10);
+  if (storeRaw){
+    Serial.println("RAW");
+    EEPROM.write(address,results.rawlen);
+    EEPROM.write(address+1,100);// raw type
+    EEPROM_writeRAW(500,results.rawbuf,results.rawlen);
+  } else {
   Serial.println("4");
   if (results.decode_type == UNKNOWN) return;
-  EEPROM.write(address,results.bits);
+  EEPROM.write(address,results.bits); //длина кода в битах
   Serial.println("5");
-  EEPROM_writeInt(address+2,results.value);
+  EEPROM_writeInt(address+2,results.value); //код
   Serial.println("6");
-  EEPROM.write(address+1,results.decode_type);
+  EEPROM.write(address+1,results.decode_type); // тип кода, RAW >= 100
   Serial.println("7");
   Serial.println(results.rawlen);
   for (int i=0; i<results.rawlen-1;i++){
     Serial.println(results.rawbuf[i]);
+  }
   }
   readEEP();
 }
@@ -174,21 +258,22 @@ void storeCode(){
 byte getAdr(char button){
   switch(button){
     case '1':return 0;
-    case '2':return 10;
-    case '3':return 20;
-    case '4':return 30;
-    case '5':return 40;
-    case '6':return 50;
-    case '7':return 60;
-    case '8':return 70;
-    case '9':return 80;
-    case '0':return 90;
-    case 'A':return 100;
-    case 'B':return 110;
-    case 'C':return 120;
-    case 'D':return 130;
+    case '2':return 6;
+    case '3':return 12;
+    case '4':return 18;
+    case '5':return 24;
+    case '6':return 30;
+    case '7':return 36;
+    case '8':return 42;
+    case '9':return 48;
+    case '0':return 54;
+    case 'A':return 60;
+    case 'B':return 66;
+    case 'C':return 72;
+    case 'D':return 78;
   }
 }
+
 
 void sendCode(char key){
     byte adr = getAdr(key);
@@ -197,31 +282,32 @@ void sendCode(char key){
     int codeType = EEPROM.read(adr+1);
     Serial.println(codeType);
     long unsigned codeValue = EEPROM_readInt(adr+2);
-    if (codeType == NEC) {
+    if (codeType == 100) {
+      unsigned int * raw = EEPROM_readRAW(500,codeLen);
+      Sender.sendRaw(raw,codeLen,38); //38 khz
+      free(raw);
+    }
+    
+    else if (codeType == NEC) {
       Sender.sendNEC(codeValue, codeLen);
-      Serial.print("Sent NEC ");
       Serial.println(codeValue, HEX);
   } 
   else if (codeType == SONY) {
     Sender.sendSony(codeValue, codeLen);
-    Serial.print("Sent Sony ");
     Serial.println(codeValue, HEX);
   } 
   else if (codeType == PANASONIC) {
     Sender.sendPanasonic(codeValue, codeLen);
-    Serial.print("Sent Panasonic");
     Serial.println(codeValue, HEX);
   }
   else if (codeType == SAMSUNG) {
     Sender.sendSAMSUNG(codeValue, codeLen);
-    Serial.print("Sent samsung ");
     Serial.println(codeValue, HEX);
   }
   else if (codeType == JVC) {
     Sender.sendJVC(codeValue, codeLen,0);
-    delayMicroseconds(50);
-    Sender.sendJVC(codeValue, codeLen,1);
-    Serial.print("Sent JVC");
+    //delayMicroseconds(50);
+    //Sender.sendJVC(codeValue, codeLen,1);
     Serial.println(codeValue, HEX);
   }
   else if (codeType == RC5 || codeType == RC6) {
@@ -232,15 +318,60 @@ void sendCode(char key){
     codeValue = codeValue & ~(1 << (codeLen - 1));
     codeValue = codeValue | (toggle << (codeLen - 1));
     if (codeType == RC5) {
-      Serial.print("Sent RC5 ");
       Serial.println(codeValue, HEX);
       Sender.sendRC5(codeValue, codeLen);
     } 
     else {
       Sender.sendRC6(codeValue, codeLen);
-      Serial.print("Sent RC6 ");
       Serial.println(codeValue, HEX);
     }
   } 
+}
+
+void pcControlStoreCodes(){
+  for(byte i=0;i<11;i++){
+    decode_results results;
+    Receiver.enableIRIn();
+    while (!Receiver.decode(&results)) delay(10);
+    //EEPROM.write(PC_CONTROL+i*4,results.bits);
+    Serial.println("stored");
+    EEPROM_writeInt(PC_CONTROL+i*4,results.value);
+    delay(500);
+  }
+}
+
+byte findCode(long unsigned code){
+  for(byte i=0;i<11;i++){
+  long unsigned storedCode = EEPROM_readInt(PC_CONTROL+i*4);
+  if (code == storedCode) return i;
+  }
+  return 255;
+}
+
+
+void pcControlMode(){
+  while(true){
+  Receiver.enableIRIn();
+  decode_results results;
+  Receiver.enableIRIn();
+  while (!Receiver.decode(&results)) delay(10);
+  byte option = findCode(results.value);
+  char scancode;
+  switch (option){
+    case 0:scancode = KEY_RIGHT_ARROW;break;
+    case 1:scancode = KEY_LEFT_ARROW;break;
+    case 2:scancode = 80;break; //vol up
+    case 3:scancode = 81;break; //vol down
+    case 4:Mouse.move(0,-10,0);break;
+    case 5:Mouse.move(0,10,0);break;
+    case 6:Mouse.move(-10,0,0);break;
+    case 7:Mouse.move(10,0,0);break;
+    case 8:Mouse.click();break;
+    case 10:return;
+    case 255:scancode = "X";break; //vol down
+  }
+  Keyboard.write(scancode);
+  //delay(150);
+  }
 }
 
