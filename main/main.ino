@@ -3,7 +3,7 @@
 #include <Keypad.h>
 #include <Keyboard.h>
 #include <Mouse.h>
-#define USB_HID_PROTOCOL_KEYBOARD 0x01
+//#define USB_HID_PROTOCOL_KEYBOARD 0x01
 #define ROWS 4
 #define COLS 4
 #define PC_CONTROL 84
@@ -23,7 +23,7 @@ const char keys[ROWS][COLS] = {
   
 };
 const byte rowPins[ROWS] = {2, 10, 9, 6}; //connect to the row pinouts of the keypad
-const byte colPins[COLS] = {8, 5, 4, 3}; //connect to the column pinouts of the keypad
+const byte colPins[COLS] = {8, 5, 4, 3}; //connect to column pinouts of the keypad
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 
 void setup()
@@ -236,7 +236,7 @@ void storeCode(byte storeRaw){
     Serial.println("RAW");
     EEPROM.write(address,results.rawlen);
     EEPROM.write(address+1,100);// raw type
-    EEPROM_writeRAW(500,results.rawbuf,results.rawlen);
+    EEPROM_writeRAW(getAdrForRaw(bindKey),results.rawbuf,results.rawlen);
   } else {
   Serial.println("4");
   if (results.decode_type == UNKNOWN) return;
@@ -274,6 +274,24 @@ byte getAdr(char button){
   }
 }
 
+byte getAdrForRaw(char button){ //EEPROM can store no more than 3 raw ir codes
+  switch(button){
+    case '1':return 250;
+    case '2':return 500;
+    case '3':return 750;
+    case '4':return 250;
+    case '5':return 500;
+    case '6':return 750;
+    case '7':return 250;
+    case '8':return 500;
+    case '9':return 750;
+    case '0':return 250;
+    case 'A':return 500;
+    case 'B':return 750;
+    case 'C':return 250;
+    case 'D':return 500;
+  }
+}
 
 void sendCode(char key){
     byte adr = getAdr(key);
@@ -283,7 +301,7 @@ void sendCode(char key){
     Serial.println(codeType);
     long unsigned codeValue = EEPROM_readInt(adr+2);
     if (codeType == 100) {
-      unsigned int * raw = EEPROM_readRAW(500,codeLen);
+      unsigned int * raw = EEPROM_readRAW(getAdrForRaw(key),codeLen);
       Sender.sendRaw(raw,codeLen,38); //38 khz
       free(raw);
     }
@@ -357,20 +375,29 @@ void pcControlMode(){
   while (!Receiver.decode(&results)) delay(10);
   byte option = findCode(results.value);
   char scancode;
+  bool noMod = false;
   switch (option){
     case 0:scancode = KEY_RIGHT_ARROW;break;
     case 1:scancode = KEY_LEFT_ARROW;break;
-    case 2:scancode = 80;break; //vol up
-    case 3:scancode = 81;break; //vol down
+    case 2:{
+      scancode = 128; //vol up
+      noMod = true;
+      break;
+    }
+    case 3:{
+      scancode = 129; //vol down
+      noMod = true;
+      break;
+    }
     case 4:Mouse.move(0,-10,0);break;
     case 5:Mouse.move(0,10,0);break;
     case 6:Mouse.move(-10,0,0);break;
     case 7:Mouse.move(10,0,0);break;
     case 8:Mouse.click();break;
-    case 10:return;
+    case 9:return;break;
     case 255:scancode = "X";break; //vol down
   }
-  Keyboard.write(scancode);
+  Keyboard.writeMod(scancode,noMod);
   //delay(150);
   }
 }
