@@ -6,7 +6,7 @@
 //#define USB_HID_PROTOCOL_KEYBOARD 0x01
 #define ROWS 4
 #define COLS 4
-#define PC_CONTROL 84
+#define PC_CONTROL 96
 IRrecv Receiver(7);
 IRsend Sender;
 void sendCode(char);
@@ -271,6 +271,8 @@ byte getAdr(char button){
     case 'B':return 66;
     case 'C':return 72;
     case 'D':return 78;
+    case '*':return 84;
+    case '#':return 90;
   }
 }
 
@@ -374,28 +376,21 @@ void pcControlMode(){
   Receiver.enableIRIn();
   while (!Receiver.decode(&results)) delay(10);
   byte option = findCode(results.value);
-  char scancode;
+  char scancode = 0;
   bool noMod = false;
   switch (option){
     case 0:scancode = KEY_RIGHT_ARROW;break;
     case 1:scancode = KEY_LEFT_ARROW;break;
-    case 2:{
-      scancode = 128; //vol up
-      noMod = true;
-      break;
-    }
-    case 3:{
-      scancode = 129; //vol down
-      noMod = true;
-      break;
-    }
+    case 2:Mouse.move(0,0,4);break;
+    case 3:Mouse.move(0,0,-4);break;
     case 4:Mouse.move(0,-10,0);break;
     case 5:Mouse.move(0,10,0);break;
     case 6:Mouse.move(-10,0,0);break;
     case 7:Mouse.move(10,0,0);break;
     case 8:Mouse.click();break;
-    case 9:return;break;
-    case 255:scancode = "X";break; //vol down
+    case 9:scancode = ' ';break;
+    case 10:return;break;
+    default:break;
   }
   Keyboard.writeMod(scancode,noMod);
   //delay(150);
